@@ -26,7 +26,7 @@ dist/
 postgres_data/
 llama_cache/
 
-data/tmp/
+data/tmp/*
 data/imports/*.xlsx
 data/imports/*.xls
 

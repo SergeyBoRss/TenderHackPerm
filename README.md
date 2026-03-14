@@ -9,9 +9,22 @@
 - `PostgreSQL` в `docker compose`
 - `pgvector` extension в PostgreSQL
 - переменные окружения через `.env`
-- отдельный native backfill embeddings для macOS/Apple Silicon
+- embeddings на `sentence-transformers` внутри backend
 
 ## Запуск
+
+## Быстрый старт
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+После старта:
+
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- Health: `http://localhost:8000/api/v1/health`
 
 1. Создать `.env`:
 
@@ -38,6 +51,9 @@ python -m app.db.migrate
 
 - `http://localhost:8000/api/v1/health`
 - `http://localhost:8000/docs`
+- `http://localhost:8000/redoc`
+
+Полная спецификация ручек доступна в Swagger UI и ReDoc.
 
 ## Импорт Excel
 
@@ -56,23 +72,179 @@ IMPORT_CTE_FILENAME=cte.xlsx
 IMPORT_CONTRACTS_FILENAME=contracts.xlsx
 ```
 
+Что лежит в `data/imports/`:
+
+- `cte.xlsx` исходный Excel со справочником CTE
+- `contracts.xlsx` исходный Excel с контрактами и товарными позициями
+- `cte_embeddings_for_postgres.xlsx` готовый Excel c embeddings для загрузки в таблицу `cte_embeddings`
+- `cte_embeddings_for_postgres_full.xlsx` расширенная или полная версия Excel c embeddings, если нужно загрузить именно ее, укажи путь явно в `IMPORT_CTE_EMBEDDINGS_FILE` или в теле запроса `POST /api/v1/embeddings/import-from-excel`
+
+Пример настройки для полной версии:
+
+```bash
+IMPORT_CTE_EMBEDDINGS_FILE=data/imports/cte_embeddings_for_postgres_full.xlsx
+```
+
 Эндпоинты:
 
 - `DELETE /api/v1/imports/procurement-data` очистить таблицы закупочного домена
 - `POST /api/v1/imports/procurement-data/load` загрузить файлы без полной очистки
 - `POST /api/v1/imports/procurement-data/refresh` очистить и заново загрузить оба файла
 
-## Аналитика
+## Роутеры
 
-- `POST /api/v1/analytics/pricing/cte/{cte_id}` рассчитать оценку цены по 3-веточной схеме
+### `system`
 
-Для backfill embeddings используй отдельный native-процесс на macOS Apple Silicon:
+- `GET /api/v1/` статус сервиса
 
-```bash
-POSTGRES_HOST=localhost EMBEDDINGS_POSTGRES_HOST=localhost python -m app.backfill_cte_embeddings
+### `health`
+
+- `GET /api/v1/health` healthcheck
+
+### `imports`
+
+- `DELETE /api/v1/imports/procurement-data` очистить закупочные таблицы
+- `POST /api/v1/imports/procurement-data/load` загрузить Excel без полной очистки
+- `POST /api/v1/imports/procurement-data/refresh` очистить и загрузить Excel заново
+
+### `references`
+
+- `GET /api/v1/references/suppliers` список поставщиков
+- `GET /api/v1/references/units` список единиц измерения
+- `GET /api/v1/references/categories` список категорий
+
+### `cte`
+
+- `POST /api/v1/cte/search` поиск кандидатов CTE по названию и характеристикам
+- `POST /api/v1/cte/manual` ручное добавление CTE
+
+### `embeddings`
+
+- `POST /api/v1/embeddings/backfill` пересчет embeddings через backend
+- `POST /api/v1/embeddings/import-from-excel` загрузка готовых embeddings из Excel в `cte_embeddings`
+
+### `analytics`
+
+- `POST /api/v1/analytics/pricing/cte/{cte_id}` оценка цены для одного CTE по 3-веточной схеме
+- `POST /api/v1/analytics/nmck` расчет НМЦК по корзине
+
+### Поиск CTE
+
+Ручка поиска принимает:
+
+- `name` обязательное название товара
+- `characteristics` характеристики либо как JSON-объект, либо строкой вида `Ключ:значение;Ключ:значение`
+- `unit_value` единица измерения; если передана, будут искаться только CTE, у которых в истории есть позиции с этой единицей
+- `supplier_inns` список ИНН поставщиков; если передан, будут искаться только CTE, у которых в истории есть позиции от этих поставщиков
+- `date_from` и `date_to` фильтр по дате контракта
+- `max_candidates` максимальное количество возвращаемых CTE
+
+Пример:
+
+```json
+POST /api/v1/cte/search
+{
+  "name": "пакет мусорный 20л",
+  "characteristics": "Цвет:черный;Объем:20",
+  "unit_value": "шт",
+  "supplier_inns": ["5900000000", "7700000000"],
+  "date_from": "2024-01-01",
+  "date_to": "2026-03-15",
+  "max_candidates": 20
+}
 ```
 
-Это сделано отдельно от Docker API, потому что `mlx-embeddings` рассчитан на MLX/macOS, а контейнер `api` работает на Linux-образе.
+### Формирование весов
+
+При расчете цены для одного `cte` backend сначала собирает историческую выборку кандидатов:
+
+- exact-ветка по категории / производителю
+- vector-ветка по similarity embeddings
+
+После объединения выборки:
+
+1. По `unit_price` считается `IQR`
+2. Выбросы отсекаются
+3. Для оставшихся наблюдений считаются веса
+
+Используются 4 веса:
+
+- `exact_weight`  
+  Вес строгой воронки:
+  - совпали категория + производитель + регион -> `1.0`
+  - совпали категория + производитель -> региональный вес
+  - совпала только категория -> региональный вес `* ANALYTICS_CATEGORY_ONLY_MULTIPLIER`
+  - ничего не совпало -> региональный вес `* ANALYTICS_FALLBACK_MULTIPLIER`
+
+- `embedding_weight`  
+  Берется из cosine similarity embeddings и ограничивается диапазоном `0..1`
+
+- `time_weight`  
+  Учитывает давность контракта через half-life:
+  - чем старее контракт, тем меньше вес
+
+- `quantity_weight`  
+  Учитывает близость исторического объема закупки к целевому объему:
+  ```text
+  quantity_distance = abs(log(target_quantity + 1) - log(candidate_quantity + 1))
+  quantity_weight = exp(-alpha * quantity_distance)
+  quantity_weight = max(min_weight, quantity_weight)
+  ```
+
+Итоговый вес наблюдения:
+
+```text
+final_weight = exact_weight * embedding_weight * time_weight * quantity_weight
+```
+
+После этого по `unit_price` считается взвешенная медиана.  
+Она и становится `estimated_unit_price` для конкретного `cte`.
+
+## Таблицы
+
+Основные таблицы и справочники в БД:
+
+- `manufacturers` производители
+- `categories` категории
+- `cte` каталог товаров CTE
+- `counterparties` контрагенты
+- `purchase_names` наименования закупок
+- `procurement_methods` способы закупки
+- `units` единицы измерения
+- `contracts` контракты
+- `contract_items` товарные позиции контрактов
+- `cte_embeddings` embeddings для CTE
+- `region_geo_cache` кеш геокоординат регионов
+
+## Скрипты
+
+Пересчет embeddings из терминала:
+
+```bash
+POSTGRES_HOST=localhost python scripts/backfill_cte_embeddings.py --batch-size 16 --force-rebuild
+```
+
+Загрузка готовых embeddings из Excel:
+
+```bash
+POSTGRES_HOST=localhost python scripts/load_cte_embeddings_standalone.py --truncate
+```
+
+По умолчанию скрипт читает файл `data/imports/cte_embeddings_for_postgres.xlsx`.
+
+Выгрузка таблицы `cte_embeddings` обратно в Excel:
+
+```bash
+POSTGRES_HOST=localhost python scripts/export_cte_embeddings_standalone.py
+```
+
+По умолчанию файл сохраняется в `data/imports/cte_embeddings_for_postgres.xlsx`.
+
+Отдельные standalone-скрипты в `scripts/`:
+
+- `scripts/backfill_cte_embeddings.py` пересчет embeddings через текущую модель
+- `scripts/load_cte_embeddings_standalone.py` загрузка готового Excel в `cte_embeddings`
+- `scripts/export_cte_embeddings_standalone.py` выгрузка `cte_embeddings` в Excel
 
 ## Структура
 
@@ -89,7 +261,6 @@ app/
     migrations/
     session.py
   repositories/
-  security/
   models/
   schemas/
   main.py

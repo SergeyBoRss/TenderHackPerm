@@ -5,22 +5,19 @@ from pydantic import BaseModel
 
 class PricingEstimateRequest(BaseModel):
     target_region: str
-    reference_date: date | None = None
-    vector_limit: int | None = None
-
-
-class InputPricingEstimateRequest(BaseModel):
-    name: str
-    characteristics: dict | None = None
-    target_region: str
+    target_quantity: float | None = None
     reference_date: date | None = None
     vector_limit: int | None = None
 
 
 class CteSearchRequest(BaseModel):
     name: str
-    characteristics: dict | None = None
-    limit: int = 20
+    characteristics: dict | str | None = None
+    unit_value: str | None = None
+    supplier_inns: list[str] | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+    max_candidates: int = 20
 
 
 class BasketNmckItemRequest(BaseModel):
@@ -41,23 +38,14 @@ class EmbeddingBackfillRequest(BaseModel):
     force_rebuild: bool = False
 
 
+class EmbeddingExcelImportRequest(BaseModel):
+    file_path: str | None = None
+    batch_size: int = 1000
+    truncate: bool = False
+
+
 class PricingEstimateResponse(BaseModel):
     cte_id: int
-    target_region: str
-    reference_date: date
-    estimated_unit_price: float | None
-    total_candidates: int
-    filtered_candidates: int
-    exact_candidates: int
-    vector_candidates: int
-    q1: float | None
-    q3: float | None
-    iqr_low: float | None
-    iqr_high: float | None
-
-
-class InputPricingEstimateResponse(BaseModel):
-    query_name: str
     target_region: str
     reference_date: date
     estimated_unit_price: float | None
@@ -85,8 +73,62 @@ class CteSearchCandidateResponse(BaseModel):
 
 class CteSearchResponse(BaseModel):
     query_name: str
+    applied_unit_value: str | None = None
+    applied_supplier_inns: list[str] | None = None
+    applied_date_from: date | None = None
+    applied_date_to: date | None = None
     total_candidates: int
     candidates: list[CteSearchCandidateResponse]
+
+
+class SupplierOptionResponse(BaseModel):
+    id: int
+    name: str | None = None
+    inn: str | None = None
+    region: str | None = None
+
+
+class SupplierOptionsResponse(BaseModel):
+    total: int
+    items: list[SupplierOptionResponse]
+
+
+class UnitOptionResponse(BaseModel):
+    id: int
+    value: str
+
+
+class UnitOptionsResponse(BaseModel):
+    total: int
+    items: list[UnitOptionResponse]
+
+
+class CategoryOptionResponse(BaseModel):
+    id: int
+    name: str
+
+
+class CategoryOptionsResponse(BaseModel):
+    total: int
+    items: list[CategoryOptionResponse]
+
+
+class ManualCteCreateRequest(BaseModel):
+    name: str
+    characteristics: dict | str | None = None
+    category_name: str
+    manufacturer_name: str | None = None
+
+
+class ManualCteCreateResponse(BaseModel):
+    cte_id: int
+    name: str
+    category_id: int
+    category_name: str
+    manufacturer_id: int | None = None
+    manufacturer_name: str | None = None
+    characteristics: dict | str | None = None
+    embedding_created: bool
 
 
 class BasketNmckItemResponse(BaseModel):
@@ -116,3 +158,8 @@ class BasketNmckResponse(BaseModel):
 class EmbeddingBackfillResponse(BaseModel):
     processed_cte: int
     updated_embeddings: int
+
+
+class EmbeddingExcelImportResponse(BaseModel):
+    file_path: str
+    imported_embeddings: int

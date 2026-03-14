@@ -1,3 +1,5 @@
+import json
+
 from asyncpg import Connection
 
 from app.db.session import AsyncDatabase
@@ -6,6 +8,116 @@ from app.db.session import AsyncDatabase
 class ProcurementAnalysisRepository:
     def __init__(self, db: AsyncDatabase):
         self.db = db
+
+    async def fetch_suppliers(self) -> list[dict]:
+        rows = await self.db.fetch(
+            """
+            SELECT DISTINCT
+                suppliers.id,
+                suppliers.name,
+                suppliers.inn,
+                suppliers.region
+            FROM contracts
+            JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
+            ORDER BY suppliers.inn NULLS LAST, suppliers.name NULLS LAST, suppliers.id
+            """
+        )
+        return [dict(row) for row in rows]
+
+    async def fetch_units(self) -> list[dict]:
+        rows = await self.db.fetch(
+            """
+            SELECT id, value
+            FROM units
+            ORDER BY value
+            """
+        )
+        return [dict(row) for row in rows]
+
+    async def truncate_cte_embeddings(self, conn: Connection) -> None:
+        await conn.execute("TRUNCATE TABLE cte_embeddings RESTART IDENTITY")
+
+    async def fetch_categories(self) -> list[dict]:
+        rows = await self.db.fetch(
+            """
+            SELECT id, name
+            FROM categories
+            ORDER BY name
+            """
+        )
+        return [dict(row) for row in rows]
+
+    async def create_manual_cte(
+        self,
+        *,
+        cte_id: int,
+        name: str,
+        category_name: str,
+        manufacturer_name: str | None,
+        characteristics: dict,
+    ) -> dict:
+        async with self.db.transaction() as conn:
+            category_id = await self._ensure_category(conn, category_name)
+            manufacturer_id = None
+            if manufacturer_name:
+                manufacturer_id = await self._ensure_manufacturer(conn, manufacturer_name)
+
+            await conn.execute(
+                """
+                INSERT INTO cte (id, name, category_id, manufacturer_id, characteristics)
+                VALUES ($1, $2, $3, $4, $5::jsonb)
+                """,
+                cte_id,
+                name,
+                category_id,
+                manufacturer_id,
+                json.dumps(characteristics, ensure_ascii=False),
+            )
+
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    c.id,
+                    c.name,
+                    c.characteristics,
+                    c.category_id,
+                    categories.name AS category_name,
+                    c.manufacturer_id,
+                    manufacturers.name AS manufacturer_name
+                FROM cte AS c
+                JOIN categories ON categories.id = c.category_id
+                LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
+                WHERE c.id = $1
+                """,
+                cte_id,
+            )
+        return dict(row)
+
+    async def _ensure_category(self, conn: Connection, category_name: str) -> int:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO categories (name)
+            VALUES ($1)
+            ON CONFLICT (name) DO UPDATE
+            SET name = EXCLUDED.name
+            RETURNING id
+            """,
+            category_name,
+        )
+        return int(row["id"])
+
+    async def _ensure_manufacturer(self, conn: Connection, manufacturer_name: str) -> int:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO manufacturers (name)
+            VALUES ($1)
+            ON CONFLICT (name) DO UPDATE
+            SET name = EXCLUDED.name
+            RETURNING id
+            """,
+            manufacturer_name,
+        )
+        return int(row["id"])
 
     async def count_cte(self) -> int:
         return await self.db.fetchval("SELECT COUNT(*) FROM cte")
@@ -128,6 +240,17 @@ class ProcurementAnalysisRepository:
         )
         return dict(row) if row else None
 
+    async def fetch_cte_embedding_state(self, cte_id: int) -> dict | None:
+        row = await self.db.fetchrow(
+            """
+            SELECT cte_id, input_hash
+            FROM cte_embeddings
+            WHERE cte_id = $1
+            """,
+            cte_id,
+        )
+        return dict(row) if row else None
+
     async def fetch_exact_candidates(
         self,
         target_category_id: int,
@@ -139,6 +262,7 @@ class ProcurementAnalysisRepository:
             SELECT
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
+                contract_items.quantity,
                 contract_items.unit_price,
                 contracts.signed_at,
                 counterparties.region AS customer_region,
@@ -172,6 +296,7 @@ class ProcurementAnalysisRepository:
             SELECT
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
+                contract_items.quantity,
                 contract_items.unit_price,
                 contracts.signed_at,
                 counterparties.region AS customer_region,
@@ -197,6 +322,10 @@ class ProcurementAnalysisRepository:
     async def fetch_cte_name_exact_matches(
         self,
         query_name: str,
+        unit_value: str | None,
+        supplier_inns: list[str] | None,
+        date_from: str | None,
+        date_to: str | None,
         limit: int,
     ) -> list[dict]:
         rows = await self.db.fetch(
@@ -215,10 +344,29 @@ class ProcurementAnalysisRepository:
             JOIN categories ON categories.id = c.category_id
             LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
             WHERE lower(btrim(c.name)) = lower(btrim($1))
+              AND (
+                    ($2::text IS NULL AND $3::text[] IS NULL AND $4::date IS NULL AND $5::date IS NULL)
+                    OR EXISTS (
+                        SELECT 1
+                        FROM contract_items
+                        JOIN units ON units.id = contract_items.unit_id
+                        JOIN contracts ON contracts.id = contract_items.contract_id
+                        JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
+                        WHERE contract_items.cte_id = c.id
+                          AND ($2::text IS NULL OR lower(btrim(units.value)) = lower(btrim($2)))
+                          AND ($3::text[] IS NULL OR suppliers.inn = ANY($3))
+                          AND ($4::date IS NULL OR contracts.signed_at >= $4::date)
+                          AND ($5::date IS NULL OR contracts.signed_at <= $5::date)
+                    )
+              )
             ORDER BY c.id
-            LIMIT $2
+            LIMIT $6
             """,
             query_name,
+            unit_value,
+            supplier_inns,
+            date_from,
+            date_to,
             limit,
         )
         return [dict(row) for row in rows]
@@ -226,6 +374,10 @@ class ProcurementAnalysisRepository:
     async def fetch_cte_vector_matches(
         self,
         target_embedding_text: str,
+        unit_value: str | None,
+        supplier_inns: list[str] | None,
+        date_from: str | None,
+        date_to: str | None,
         limit: int,
     ) -> list[dict]:
         rows = await self.db.fetch(
@@ -244,10 +396,29 @@ class ProcurementAnalysisRepository:
             JOIN cte AS c ON c.id = cte_embeddings.cte_id
             JOIN categories ON categories.id = c.category_id
             LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
+            WHERE (
+                    ($2::text IS NULL AND $3::text[] IS NULL AND $4::date IS NULL AND $5::date IS NULL)
+                    OR EXISTS (
+                        SELECT 1
+                        FROM contract_items
+                        JOIN units ON units.id = contract_items.unit_id
+                        JOIN contracts ON contracts.id = contract_items.contract_id
+                        JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
+                        WHERE contract_items.cte_id = c.id
+                          AND ($2::text IS NULL OR lower(btrim(units.value)) = lower(btrim($2)))
+                          AND ($3::text[] IS NULL OR suppliers.inn = ANY($3))
+                          AND ($4::date IS NULL OR contracts.signed_at >= $4::date)
+                          AND ($5::date IS NULL OR contracts.signed_at <= $5::date)
+                    )
+                  )
             ORDER BY cte_embeddings.embedding <=> $1::vector
-            LIMIT $2
+            LIMIT $6
             """,
             target_embedding_text,
+            unit_value,
+            supplier_inns,
+            date_from,
+            date_to,
             limit,
         )
         return [dict(row) for row in rows]
@@ -262,6 +433,7 @@ class ProcurementAnalysisRepository:
             SELECT
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
+                contract_items.quantity,
                 contract_items.unit_price,
                 contracts.signed_at,
                 counterparties.region AS customer_region,
