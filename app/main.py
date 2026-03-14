@@ -4,7 +4,10 @@ from fastapi import FastAPI
 
 from app.api.main import api_router
 from app.core.config import settings
+from app.core.logging import configure_logging
 from app.db.session import db
+
+configure_logging()
 
 
 @asynccontextmanager

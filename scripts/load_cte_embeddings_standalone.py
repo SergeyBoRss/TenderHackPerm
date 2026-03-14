@@ -9,7 +9,7 @@ from time import perf_counter
 import asyncpg
 from openpyxl import load_workbook
 
-DEFAULT_FILE_PATH = Path("data/tmp/cte_embeddings_for_postgres.xlsx")
+DEFAULT_FILE_PATH = Path("data/imports/cte_embeddings_for_postgres.xlsx")
 EXPECTED_HEADERS = (
     "cte_id",
     "model_name",

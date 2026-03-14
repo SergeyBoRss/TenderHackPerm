@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     import_data_dir: str = Field(default="data/imports", alias="IMPORT_DATA_DIR")
     import_cte_filename: str = Field(default="cte.xlsx", alias="IMPORT_CTE_FILENAME")
     import_contracts_filename: str = Field(default="contracts.xlsx", alias="IMPORT_CONTRACTS_FILENAME")
+    import_cte_embeddings_file: str = Field(
+        default="data/imports/cte_embeddings_for_postgres.xlsx",
+        alias="IMPORT_CTE_EMBEDDINGS_FILE",
+    )
     embeddings_model_name: str = Field(default="intfloat/multilingual-e5-small", alias="EMBEDDINGS_MODEL_NAME")
     embeddings_dimensions: int = Field(default=384, alias="EMBEDDINGS_DIMENSIONS")
     embeddings_batch_size: int = Field(default=16, alias="EMBEDDINGS_BATCH_SIZE")
@@ -41,6 +45,14 @@ class Settings(BaseSettings):
     analytics_missing_embedding_weight: float = Field(
         default=0.35,
         alias="ANALYTICS_MISSING_EMBEDDING_WEIGHT",
+    )
+    analytics_quantity_weight_alpha: float = Field(
+        default=0.6,
+        alias="ANALYTICS_QUANTITY_WEIGHT_ALPHA",
+    )
+    analytics_quantity_weight_min: float = Field(
+        default=0.2,
+        alias="ANALYTICS_QUANTITY_WEIGHT_MIN",
     )
     analytics_vector_limit: int = Field(default=250, alias="ANALYTICS_VECTOR_LIMIT")
 

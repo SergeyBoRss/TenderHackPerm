@@ -107,6 +107,36 @@ class CteEmbeddingBackfillService:
         self.repository = ProcurementAnalysisRepository(db)
         self.embedding_client = TransformerEmbeddingClient()
 
+    async def generate_for_cte(self, cte_id: int, *, force_rebuild: bool = False) -> bool:
+        target = await self.repository.fetch_target_cte_context(cte_id)
+        if not target:
+            raise ValueError(f"CTE {cte_id} not found")
+
+        input_text = CteSearchTextBuilder.build(
+            name=target["name"],
+            category_name=None,
+            manufacturer_name=None,
+            characteristics=target.get("characteristics") or {},
+        )
+        input_hash = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
+        current_embedding = await self.repository.fetch_cte_embedding_state(cte_id)
+
+        async with self.db.transaction() as conn:
+            if current_embedding and not force_rebuild and current_embedding.get("input_hash") == input_hash:
+                return False
+
+            vector = (await self.embedding_client.embed_documents([input_text]))[0]
+            await self.repository.upsert_cte_embedding(
+                conn=conn,
+                cte_id=cte_id,
+                model_name=settings.embeddings_model_name,
+                embedding_dimensions=settings.embeddings_dimensions,
+                input_text=input_text,
+                input_hash=input_hash,
+                embedding_literal=self.embedding_client.to_vector_literal(vector),
+            )
+        return True
+
     async def backfill(
         self,
         batch_size: int | None = None,
@@ -144,8 +174,8 @@ class CteEmbeddingBackfillService:
                     processed_cte += 1
                     input_text = CteSearchTextBuilder.build(
                         name=row["name"],
-                        category_name=row["category_name"],
-                        manufacturer_name=row.get("manufacturer_name"),
+                        category_name=None,
+                        manufacturer_name=None,
                         characteristics=row.get("characteristics") or {},
                     )
                     input_hash = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
@@ -169,7 +199,6 @@ class CteEmbeddingBackfillService:
                         total_cte=total_cte,
                         updated_in_batch=0,
                         updated_embeddings=updated_embeddings,
-                        batch_processed=batch_processed,
                         batch_started_at=batch_started_at,
                         started_at=started_at,
                     )
@@ -195,7 +224,6 @@ class CteEmbeddingBackfillService:
                     total_cte=total_cte,
                     updated_in_batch=len(db_rows),
                     updated_embeddings=updated_embeddings,
-                    batch_processed=batch_processed,
                     batch_started_at=batch_started_at,
                     started_at=started_at,
                 )
@@ -222,17 +250,16 @@ class CteEmbeddingBackfillService:
         total_cte: int,
         updated_in_batch: int,
         updated_embeddings: int,
-        batch_processed: int,
         batch_started_at: float,
         started_at: float,
     ) -> None:
         batch_elapsed = max(perf_counter() - batch_started_at, 1e-9)
         total_elapsed = max(perf_counter() - started_at, 1e-9)
         percent = (processed_cte / total_cte * 100.0) if total_cte else 100.0
-        batch_rate = batch_processed / batch_elapsed
-        avg_rate = processed_cte / total_elapsed
+        batch_rate = updated_in_batch / batch_elapsed
+        avg_rate = updated_embeddings / total_elapsed
         logger.info(
-            "CTE embeddings backfill progress: batch=%s processed=%s/%s (%.1f%%) updated_batch=%s updated_total=%s batch_rate=%.1f cte/s avg_rate=%.1f cte/s",
+            "CTE embeddings backfill progress: batch=%s processed=%s/%s (%.1f%%) updated_batch=%s updated_total=%s batch_rate=%.1f emb/s avg_rate=%.1f emb/s",
             batch_number,
             processed_cte,
             total_cte,

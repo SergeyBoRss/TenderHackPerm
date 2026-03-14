@@ -4,6 +4,10 @@ from typing import Any
 
 class CteSearchTextBuilder:
     @staticmethod
+    def normalize_characteristics(characteristics: dict[str, Any] | str | None) -> dict[str, Any]:
+        return CteSearchTextBuilder._normalize_characteristics(characteristics)
+
+    @staticmethod
     def build(
         name: str,
         category_name: str | None,
@@ -39,6 +43,20 @@ class CteSearchTextBuilder:
             try:
                 parsed = json.loads(text)
             except json.JSONDecodeError:
-                return {}
+                return CteSearchTextBuilder._parse_characteristics_pairs(text)
             return parsed if isinstance(parsed, dict) else {}
         return {}
+
+    @staticmethod
+    def _parse_characteristics_pairs(text: str) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for chunk in text.split(";"):
+            part = chunk.strip()
+            if not part or ":" not in part:
+                continue
+            key, value = part.split(":", 1)
+            normalized_key = key.strip()
+            normalized_value = value.strip()
+            if normalized_key and normalized_value:
+                result[normalized_key] = normalized_value
+        return result
