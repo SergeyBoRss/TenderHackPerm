@@ -93,6 +93,79 @@ class ProcurementAnalysisRepository:
             )
         return dict(row)
 
+    async def update_cte(
+        self,
+        *,
+        cte_id: int,
+        name: str | None,
+        category_name: str | None,
+        manufacturer_name: str | None,
+        clear_manufacturer: bool,
+        characteristics: dict | None,
+    ) -> dict | None:
+        async with self.db.transaction() as conn:
+            current = await conn.fetchrow(
+                """
+                SELECT id, name, category_id, manufacturer_id, characteristics
+                FROM cte
+                WHERE id = $1
+                """,
+                cte_id,
+            )
+            if not current:
+                return None
+
+            next_name = name if name is not None else current["name"]
+            next_category_id = int(current["category_id"])
+            if category_name is not None:
+                next_category_id = await self._ensure_category(conn, category_name)
+
+            if clear_manufacturer:
+                next_manufacturer_id = None
+            else:
+                next_manufacturer_id = int(current["manufacturer_id"]) if current["manufacturer_id"] is not None else None
+                if manufacturer_name is not None:
+                    next_manufacturer_id = await self._ensure_manufacturer(conn, manufacturer_name)
+
+            next_characteristics = characteristics if characteristics is not None else dict(current["characteristics"])
+
+            await conn.execute(
+                """
+                UPDATE cte
+                SET
+                    name = $2,
+                    category_id = $3,
+                    manufacturer_id = $4,
+                    characteristics = $5::jsonb,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                cte_id,
+                next_name,
+                next_category_id,
+                next_manufacturer_id,
+                json.dumps(next_characteristics, ensure_ascii=False),
+            )
+
+            row = await conn.fetchrow(
+                """
+                SELECT
+                    c.id,
+                    c.name,
+                    c.characteristics,
+                    c.category_id,
+                    categories.name AS category_name,
+                    c.manufacturer_id,
+                    manufacturers.name AS manufacturer_name
+                FROM cte AS c
+                JOIN categories ON categories.id = c.category_id
+                LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
+                WHERE c.id = $1
+                """,
+                cte_id,
+            )
+        return dict(row) if row else None
+
     async def _ensure_category(self, conn: Connection, category_name: str) -> int:
         row = await conn.fetchrow(
             """
@@ -260,6 +333,7 @@ class ProcurementAnalysisRepository:
         rows = await self.db.fetch(
             """
             SELECT
+                contracts.id AS contract_id,
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
                 contract_items.quantity,
@@ -294,6 +368,7 @@ class ProcurementAnalysisRepository:
         rows = await self.db.fetch(
             """
             SELECT
+                contracts.id AS contract_id,
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
                 contract_items.quantity,
@@ -431,6 +506,7 @@ class ProcurementAnalysisRepository:
         rows = await self.db.fetch(
             """
             SELECT
+                contracts.id AS contract_id,
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
                 contract_items.quantity,

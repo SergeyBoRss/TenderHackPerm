@@ -4,12 +4,42 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.db.deps import get_db
 from app.db.session import AsyncDatabase
-from app.schemas.analytics import CteSearchRequest, CteSearchResponse, ManualCteCreateRequest, ManualCteCreateResponse
+from app.schemas.analytics import (
+    CteDetailResponse,
+    CteSearchRequest,
+    CteSearchResponse,
+    CteUpdateRequest,
+    ManualCteCreateRequest,
+    ManualCteCreateResponse,
+)
 from app.services.cte_embeddings import CteEmbeddingBackfillService, EmbeddingRuntimeError
 from app.services.pricing_statistics import PricingStatisticsService
 
 
 router = APIRouter(prefix="/cte", tags=["cte"])
+
+
+@router.get("/{cte_id}", response_model=CteDetailResponse)
+async def get_cte(
+    cte_id: int,
+    db: AsyncDatabase = Depends(get_db),
+) -> CteDetailResponse:
+    service = PricingStatisticsService(db)
+    result = await service.get_cte(cte_id)
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"CTE {cte_id} not found")
+    return CteDetailResponse.model_validate(
+        {
+            "cte_id": result["id"],
+            "name": result["name"],
+            "category_id": result["category_id"],
+            "category_name": result["category_name"],
+            "manufacturer_id": result.get("manufacturer_id"),
+            "manufacturer_name": result.get("manufacturer_name"),
+            "characteristics": result.get("characteristics"),
+            "has_embedding": result.get("has_embedding", False),
+        }
+    )
 
 
 @router.post("/search", response_model=CteSearchResponse)
@@ -61,5 +91,43 @@ async def create_manual_cte(
             "manufacturer_name": result.get("manufacturer_name"),
             "characteristics": result.get("characteristics"),
             "embedding_created": embedding_created,
+        }
+    )
+
+
+@router.patch("/{cte_id}", response_model=CteDetailResponse)
+async def update_cte(
+    cte_id: int,
+    payload: CteUpdateRequest,
+    db: AsyncDatabase = Depends(get_db),
+) -> CteDetailResponse:
+    service = PricingStatisticsService(db)
+    result = await service.update_cte(
+        cte_id=cte_id,
+        name=payload.name,
+        category_name=payload.category_name,
+        manufacturer_name=payload.manufacturer_name,
+        clear_manufacturer=payload.clear_manufacturer,
+        characteristics=payload.characteristics,
+    )
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"CTE {cte_id} not found")
+
+    embedding_service = CteEmbeddingBackfillService(db)
+    try:
+        embedding_created = await embedding_service.generate_for_cte(cte_id, force_rebuild=True)
+    except EmbeddingRuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    return CteDetailResponse.model_validate(
+        {
+            "cte_id": result["id"],
+            "name": result["name"],
+            "category_id": result["category_id"],
+            "category_name": result["category_name"],
+            "manufacturer_id": result.get("manufacturer_id"),
+            "manufacturer_name": result.get("manufacturer_name"),
+            "characteristics": result.get("characteristics"),
+            "has_embedding": embedding_created,
         }
     )

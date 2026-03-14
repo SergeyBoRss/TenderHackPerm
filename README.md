@@ -128,6 +128,10 @@ IMPORT_CTE_EMBEDDINGS_FILE=data/imports/cte_embeddings_for_postgres_full.xlsx
 - `POST /api/v1/analytics/pricing/cte/{cte_id}` оценка цены для одного CTE по 3-веточной схеме
 - `POST /api/v1/analytics/nmck` расчет НМЦК по корзине
 
+### `analytics-explain`
+
+- `POST /api/v1/analytics/explain/nmck` детальная расшифровка расчета НМЦК: все рассмотренные контракты, присвоенные веса, исключенные данные и причины исключения
+
 ### Поиск CTE
 
 Ручка поиска принимает:
@@ -199,6 +203,33 @@ final_weight = exact_weight * embedding_weight * time_weight * quantity_weight
 
 После этого по `unit_price` считается взвешенная медиана.  
 Она и становится `estimated_unit_price` для конкретного `cte`.
+
+### Детальная расшифровка НМЦК
+
+Ручка `POST /api/v1/analytics/explain/nmck` принимает тот же запрос, что и обычная `POST /api/v1/analytics/nmck`, но возвращает расширенную структуру:
+
+- итоговую НМЦК по корзине
+- по каждому выбранному `cte`:
+  - `min_candidate_unit_price` и `max_candidate_unit_price`
+  - `min_filtered_unit_price` и `max_filtered_unit_price`
+  - `q1`, `q3`, `iqr_low`, `iqr_high`
+  - `considered_contracts` со всеми рассмотренными контрактными позициями
+  - `excluded_contracts` с отфильтрованными наблюдениями и причиной исключения
+
+Для каждого рассмотренного контракта возвращаются:
+
+- `contract_id`, `contract_item_id`, цена и количество
+- `source_exact` и `source_vector`
+- `embedding_similarity`
+- все веса:
+  - `exact_weight`
+  - `region_weight`
+  - `embedding_weight`
+  - `time_weight`
+  - `quantity_weight`
+  - `final_weight`
+- текстовое `reason` для каждого веса
+- `used_in_median` и `exclusion_reason`
 
 ## Таблицы
 
