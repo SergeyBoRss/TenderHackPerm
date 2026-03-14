@@ -1,0 +1,9 @@
+fastapi==0.116.1
+asyncpg==0.30.0
+geopy==2.4.1
+openpyxl==3.1.5
+pydantic-settings==2.10.1
+sentence-transformers==3.0.1
+torch==2.4.1
+transformers==4.44.2
+uvicorn[standard]==0.35.0
