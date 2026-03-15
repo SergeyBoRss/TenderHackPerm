@@ -336,10 +336,12 @@ class ProcurementAnalysisRepository:
                 contracts.id AS contract_id,
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
+                cte.name AS candidate_cte_name,
                 contract_items.quantity,
                 contract_items.unit_price,
                 contracts.signed_at,
                 counterparties.region AS customer_region,
+                suppliers.name AS supplier_name,
                 cte.category_id,
                 cte.manufacturer_id,
                 CASE
@@ -349,6 +351,7 @@ class ProcurementAnalysisRepository:
             FROM contract_items
             JOIN contracts ON contracts.id = contract_items.contract_id
             JOIN counterparties ON counterparties.id = contracts.customer_id
+            LEFT JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
             JOIN cte ON cte.id = contract_items.cte_id
             LEFT JOIN cte_embeddings ON cte_embeddings.cte_id = cte.id
             WHERE cte.category_id = $1
@@ -371,10 +374,12 @@ class ProcurementAnalysisRepository:
                 contracts.id AS contract_id,
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
+                cte.name AS candidate_cte_name,
                 contract_items.quantity,
                 contract_items.unit_price,
                 contracts.signed_at,
                 counterparties.region AS customer_region,
+                suppliers.name AS supplier_name,
                 cte.category_id,
                 cte.manufacturer_id,
                 TRUE AS name_exact_match,
@@ -385,6 +390,7 @@ class ProcurementAnalysisRepository:
             FROM contract_items
             JOIN contracts ON contracts.id = contract_items.contract_id
             JOIN counterparties ON counterparties.id = contracts.customer_id
+            LEFT JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
             JOIN cte ON cte.id = contract_items.cte_id
             LEFT JOIN cte_embeddings ON cte_embeddings.cte_id = cte.id
             WHERE lower(btrim(cte.name)) = lower(btrim($1))
@@ -493,10 +499,12 @@ class ProcurementAnalysisRepository:
                 contracts.id AS contract_id,
                 contract_items.id AS contract_item_id,
                 contract_items.cte_id,
+                cte.name AS candidate_cte_name,
                 contract_items.quantity,
                 contract_items.unit_price,
                 contracts.signed_at,
                 counterparties.region AS customer_region,
+                suppliers.name AS supplier_name,
                 cte.category_id,
                 cte.manufacturer_id,
                 1 - (cte_embeddings.embedding <=> $1::vector) AS embedding_similarity
@@ -505,6 +513,7 @@ class ProcurementAnalysisRepository:
             JOIN contract_items ON contract_items.cte_id = cte.id
             JOIN contracts ON contracts.id = contract_items.contract_id
             JOIN counterparties ON counterparties.id = contracts.customer_id
+            LEFT JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
             ORDER BY cte_embeddings.embedding <=> $1::vector
             LIMIT $2
             """,

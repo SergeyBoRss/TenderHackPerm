@@ -92,8 +92,11 @@ class NmckCandidateExplain:
     contract_id: int
     contract_item_id: int
     candidate_cte_id: int
+    candidate_cte_name: str
+    supplier_name: str | None
     candidate_quantity: float | None
     unit_price: float
+    contract_total_cost: float | None
     signed_at: date
     customer_region: str | None
     source_exact: bool
@@ -318,8 +321,15 @@ class PricingStatisticsService:
                     "contract_id": int(candidate["contract_id"]),
                     "contract_item_id": int(candidate["contract_item_id"]),
                     "cte_id": int(candidate["cte_id"]),
+                    "candidate_cte_name": str(candidate["candidate_cte_name"]),
+                    "supplier_name": candidate.get("supplier_name"),
                     "quantity": float(candidate["quantity"]) if candidate.get("quantity") is not None else None,
                     "unit_price": float(candidate["unit_price"]),
+                    "contract_total_cost": (
+                        float(candidate["unit_price"]) * float(candidate["quantity"])
+                        if candidate.get("quantity") is not None
+                        else None
+                    ),
                     "signed_at": candidate["signed_at"],
                     "customer_region": candidate.get("customer_region"),
                     "source_exact": bool(candidate.get("source_exact")),
@@ -795,8 +805,11 @@ class PricingStatisticsService:
             contract_id=int(row["contract_id"]),
             contract_item_id=int(row["contract_item_id"]),
             candidate_cte_id=int(row["cte_id"]),
+            candidate_cte_name=str(row["candidate_cte_name"]),
+            supplier_name=row.get("supplier_name"),
             candidate_quantity=row["quantity"],
             unit_price=float(row["unit_price"]),
+            contract_total_cost=float(row["contract_total_cost"]) if row.get("contract_total_cost") is not None else None,
             signed_at=row["signed_at"],
             customer_region=row["customer_region"],
             source_exact=bool(row["source_exact"]),

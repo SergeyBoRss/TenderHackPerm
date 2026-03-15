@@ -179,8 +179,11 @@ class NmckCandidateExplainResponse(BaseModel):
     contract_id: int
     contract_item_id: int
     candidate_cte_id: int
+    candidate_cte_name: str
+    supplier_name: str | None = None
     candidate_quantity: float | None
     unit_price: float
+    contract_total_cost: float | None = None
     signed_at: date
     customer_region: str | None = None
     source_exact: bool
