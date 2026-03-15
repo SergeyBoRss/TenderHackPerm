@@ -22,6 +22,8 @@ class BasketNmckItemRequest(BaseModel):
     cte_ids: list[int]
     quantity: float
     item_name: str | None = None
+    unit_id: int | None = None
+    category_ids: list[int] | None = None
 
 
 class BasketNmckRequest(BaseModel):
@@ -65,6 +67,7 @@ class CteSearchCandidateResponse(BaseModel):
     manufacturer_id: int | None
     manufacturer_name: str | None
     characteristics: dict | str | None = None
+    unit: "UnitOptionResponse | None" = None
     exact_name_match: bool
     embedding_similarity: float | None = None
 

@@ -329,6 +329,8 @@ class ProcurementAnalysisRepository:
         target_category_id: int,
         target_manufacturer_id: int | None,
         target_embedding_text: str | None,
+        unit_id: int | None,
+        category_ids: list[int] | None,
     ) -> list[dict]:
         rows = await self.db.fetch(
             """
@@ -354,12 +356,18 @@ class ProcurementAnalysisRepository:
             LEFT JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
             JOIN cte ON cte.id = contract_items.cte_id
             LEFT JOIN cte_embeddings ON cte_embeddings.cte_id = cte.id
-            WHERE cte.category_id = $1
-               OR ($2::bigint IS NOT NULL AND cte.manufacturer_id = $2)
+            WHERE (
+                    cte.category_id = $1
+                    OR ($2::bigint IS NOT NULL AND cte.manufacturer_id = $2)
+                  )
+              AND ($4::bigint IS NULL OR contract_items.unit_id = $4)
+              AND ($5::bigint[] IS NULL OR cte.category_id = ANY($5))
             """,
             target_category_id,
             target_manufacturer_id,
             target_embedding_text,
+            unit_id,
+            category_ids,
         )
         return [dict(row) for row in rows]
 
@@ -417,11 +425,20 @@ class ProcurementAnalysisRepository:
                 categories.name AS category_name,
                 c.manufacturer_id,
                 manufacturers.name AS manufacturer_name,
+                unit_info.unit,
                 TRUE AS exact_name_match,
                 NULL::double precision AS embedding_similarity
             FROM cte AS c
             JOIN categories ON categories.id = c.category_id
             LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
+            LEFT JOIN LATERAL (
+                SELECT json_build_object('id', units.id, 'value', units.value) AS unit
+                FROM contract_items
+                JOIN units ON units.id = contract_items.unit_id
+                WHERE contract_items.cte_id = c.id
+                  AND ($3::bigint IS NOT NULL AND contract_items.unit_id = $3)
+                LIMIT 1
+            ) AS unit_info ON TRUE
             WHERE lower(btrim(c.name)) = lower(btrim($1))
               AND ($2::bigint[] IS NULL OR c.category_id = ANY($2))
               AND (
@@ -461,12 +478,21 @@ class ProcurementAnalysisRepository:
                 categories.name AS category_name,
                 c.manufacturer_id,
                 manufacturers.name AS manufacturer_name,
+                unit_info.unit,
                 FALSE AS exact_name_match,
                 1 - (cte_embeddings.embedding <=> $1::vector) AS embedding_similarity
             FROM cte_embeddings
             JOIN cte AS c ON c.id = cte_embeddings.cte_id
             JOIN categories ON categories.id = c.category_id
             LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
+            LEFT JOIN LATERAL (
+                SELECT json_build_object('id', units.id, 'value', units.value) AS unit
+                FROM contract_items
+                JOIN units ON units.id = contract_items.unit_id
+                WHERE contract_items.cte_id = c.id
+                  AND ($3::bigint IS NOT NULL AND contract_items.unit_id = $3)
+                LIMIT 1
+            ) AS unit_info ON TRUE
             WHERE ($2::bigint[] IS NULL OR c.category_id = ANY($2))
               AND (
                     ($3::bigint IS NULL)
@@ -492,6 +518,8 @@ class ProcurementAnalysisRepository:
         self,
         target_embedding_text: str,
         limit: int,
+        unit_id: int | None,
+        category_ids: list[int] | None,
     ) -> list[dict]:
         rows = await self.db.fetch(
             """
@@ -514,11 +542,15 @@ class ProcurementAnalysisRepository:
             JOIN contracts ON contracts.id = contract_items.contract_id
             JOIN counterparties ON counterparties.id = contracts.customer_id
             LEFT JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
+            WHERE ($3::bigint IS NULL OR contract_items.unit_id = $3)
+              AND ($4::bigint[] IS NULL OR cte.category_id = ANY($4))
             ORDER BY cte_embeddings.embedding <=> $1::vector
             LIMIT $2
             """,
             target_embedding_text,
             limit,
+            unit_id,
+            category_ids,
         )
         return [dict(row) for row in rows]
 

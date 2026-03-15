@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import date
+import json
 import logging
 import math
 from statistics import median
@@ -41,6 +42,7 @@ class CteSearchCandidate:
     manufacturer_id: int | None
     manufacturer_name: str | None
     characteristics: dict | str | None
+    unit: dict | None
     exact_name_match: bool
     embedding_similarity: float | None
 
@@ -245,16 +247,21 @@ class PricingStatisticsService:
         target_quantity: float | None,
         reference_date: date | None,
         vector_limit: int | None,
+        unit_id: int | None = None,
+        category_ids: list[int] | None = None,
     ) -> tuple[PricingEstimate, dict, list[dict]]:
         target = await self.repository.fetch_target_cte_context(cte_id)
         if not target:
             raise ValueError(f"CTE {cte_id} not found")
 
         current_reference_date = reference_date or date.today()
+        normalized_category_ids = sorted(set(category_ids)) if category_ids else None
         exact_candidates = await self.repository.fetch_exact_candidates(
             target_category_id=int(target["category_id"]),
             target_manufacturer_id=int(target["manufacturer_id"]) if target.get("manufacturer_id") else None,
             target_embedding_text=target.get("embedding_text"),
+            unit_id=unit_id,
+            category_ids=normalized_category_ids,
         )
 
         vector_candidates: list[dict] = []
@@ -262,6 +269,8 @@ class PricingStatisticsService:
             vector_candidates = await self.repository.fetch_vector_candidates(
                 target_embedding_text=target["embedding_text"],
                 limit=vector_limit or settings.analytics_vector_limit,
+                unit_id=unit_id,
+                category_ids=normalized_category_ids,
             )
 
         merged_candidates: dict[int, dict] = {}
@@ -450,6 +459,7 @@ class PricingStatisticsService:
                     manufacturer_id=int(item["manufacturer_id"]) if item.get("manufacturer_id") is not None else None,
                     manufacturer_name=item.get("manufacturer_name"),
                     characteristics=item.get("characteristics"),
+                    unit=self._normalize_unit(item.get("unit")),
                     exact_name_match=bool(item.get("exact_name_match")),
                     embedding_similarity=float(item["embedding_similarity"])
                     if item.get("embedding_similarity") is not None
@@ -485,6 +495,8 @@ class PricingStatisticsService:
                     target_quantity=quantity,
                     reference_date=current_reference_date,
                     vector_limit=vector_limit,
+                    unit_id=item.get("unit_id"),
+                    category_ids=item.get("category_ids"),
                 )
                 selected_ctes.append(
                     BasketNmckSelectedCteEstimate(
@@ -557,6 +569,8 @@ class PricingStatisticsService:
                     target_quantity=quantity,
                     reference_date=current_reference_date,
                     vector_limit=vector_limit,
+                    unit_id=item.get("unit_id"),
+                    category_ids=item.get("category_ids"),
                 )
                 if estimate.estimated_unit_price is not None:
                     unit_prices.append(float(estimate.estimated_unit_price))
@@ -830,6 +844,21 @@ class PricingStatisticsService:
             used_in_median=bool(row["used_in_median"]),
             exclusion_reason=row["exclusion_reason"],
         )
+
+    @staticmethod
+    def _normalize_unit(unit: object) -> dict | None:
+        if unit is None:
+            return None
+        if isinstance(unit, dict):
+            return dict(unit)
+        if isinstance(unit, str):
+            try:
+                parsed = json.loads(unit)
+            except json.JSONDecodeError:
+                return None
+            if isinstance(parsed, dict):
+                return dict(parsed)
+        return None
 
     def _filter_outliers(self, candidates: list[dict]) -> list[dict]:
         q1, q3, low, high = self._iqr_bounds(candidates)
