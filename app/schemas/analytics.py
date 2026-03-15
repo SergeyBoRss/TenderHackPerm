@@ -13,10 +13,8 @@ class PricingEstimateRequest(BaseModel):
 class CteSearchRequest(BaseModel):
     name: str
     characteristics: dict | str | None = None
-    unit_value: str | None = None
-    supplier_inns: list[str] | None = None
-    date_from: date | None = None
-    date_to: date | None = None
+    unit_id: int | None = None
+    category_ids: list[int] | None = None
     max_candidates: int = 20
 
 
@@ -73,10 +71,8 @@ class CteSearchCandidateResponse(BaseModel):
 
 class CteSearchResponse(BaseModel):
     query_name: str
-    applied_unit_value: str | None = None
-    applied_supplier_inns: list[str] | None = None
-    applied_date_from: date | None = None
-    applied_date_to: date | None = None
+    applied_unit_id: int | None = None
+    applied_category_ids: list[int] | None = None
     total_candidates: int
     candidates: list[CteSearchCandidateResponse]
 
