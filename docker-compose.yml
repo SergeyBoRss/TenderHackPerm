@@ -13,6 +13,25 @@ services:
       - "${APP_PORT:-8000}:8000"
     volumes:
       - ./app:/app/app
+      - ./scripts:/app/scripts
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  embedding-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tenderhackperm-embedding-sync
+    command: >
+      sh -c "python scripts/run_embedding_sync_service.py --run-at ${EMBEDDINGS_SYNC_RUN_AT:-03:00}"
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+      - ./scripts:/app/scripts
       - ./data:/app/data
     depends_on:
       postgres:

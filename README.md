@@ -26,6 +26,12 @@ docker compose up --build
 - ReDoc: `http://localhost:8000/redoc`
 - Health: `http://localhost:8000/api/v1/health`
 
+Отдельно поднимаются контейнеры:
+
+- `api` HTTP API и Swagger
+- `postgres` база данных с `pgvector`
+- `embedding-sync` фоновый сервис дозаполнения embeddings
+
 1. Создать `.env`:
 
 ```bash
@@ -252,6 +258,25 @@ final_weight = exact_weight * embedding_weight * time_weight * quantity_weight
 POSTGRES_HOST=localhost python scripts/backfill_cte_embeddings.py --batch-size 16 --force-rebuild
 ```
 
+Периодический сервис дозаполнения embeddings для новых или изменившихся CTE:
+
+```bash
+POSTGRES_HOST=localhost python scripts/run_embedding_sync_service.py --run-at 03:00
+```
+
+Разовый запуск того же сервиса:
+
+```bash
+POSTGRES_HOST=localhost python scripts/run_embedding_sync_service.py --run-once
+```
+
+В `docker compose` этот сервис уже вынесен в отдельный контейнер `embedding-sync`.
+Время ежедневного запуска задается через `.env`:
+
+```bash
+EMBEDDINGS_SYNC_RUN_AT=03:00
+```
+
 Загрузка готовых embeddings из Excel:
 
 ```bash
@@ -271,6 +296,7 @@ POSTGRES_HOST=localhost python scripts/export_cte_embeddings_standalone.py
 Отдельные standalone-скрипты в `scripts/`:
 
 - `scripts/backfill_cte_embeddings.py` пересчет embeddings через текущую модель
+- `scripts/run_embedding_sync_service.py` периодический дозапуск embeddings для новых или изменившихся CTE
 - `scripts/load_cte_embeddings_standalone.py` загрузка готового Excel в `cte_embeddings`
 - `scripts/export_cte_embeddings_standalone.py` выгрузка `cte_embeddings` в Excel
 
