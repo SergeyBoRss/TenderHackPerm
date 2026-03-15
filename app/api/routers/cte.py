@@ -52,10 +52,8 @@ async def search_cte_candidates(
         result = await service.search_cte_candidates(
             name=payload.name,
             characteristics=payload.characteristics,
-            unit_value=payload.unit_value,
-            supplier_inns=payload.supplier_inns,
-            date_from=payload.date_from,
-            date_to=payload.date_to,
+            unit_id=payload.unit_id,
+            category_ids=payload.category_ids,
             max_candidates=payload.max_candidates,
         )
     except EmbeddingRuntimeError as exc:

@@ -48,10 +48,8 @@ class CteSearchCandidate:
 @dataclass(slots=True)
 class CteSearchResult:
     query_name: str
-    applied_unit_value: str | None
-    applied_supplier_inns: list[str] | None
-    applied_date_from: date | None
-    applied_date_to: date | None
+    applied_unit_id: int | None
+    applied_category_ids: list[int] | None
     total_candidates: int
     candidates: list[CteSearchCandidate]
 
@@ -379,10 +377,8 @@ class PricingStatisticsService:
         self,
         name: str,
         characteristics: dict | str | None,
-        unit_value: str | None,
-        supplier_inns: list[str] | None,
-        date_from: date | None,
-        date_to: date | None,
+        unit_id: int | None,
+        category_ids: list[int] | None,
         max_candidates: int,
     ) -> CteSearchResult:
         capped_limit = max(1, min(max_candidates, 100))
@@ -395,21 +391,17 @@ class PricingStatisticsService:
         query_embedding = await self.embedding_client.embed_query(query_text)
         query_embedding_text = self.embedding_client.to_vector_literal(query_embedding)
 
-        normalized_supplier_inns = supplier_inns or None
+        normalized_category_ids = sorted(set(category_ids)) if category_ids else None
         exact_matches = await self.repository.fetch_cte_name_exact_matches(
             query_name=name,
-            unit_value=unit_value,
-            supplier_inns=normalized_supplier_inns,
-            date_from=date_from,
-            date_to=date_to,
+            unit_id=unit_id,
+            category_ids=normalized_category_ids,
             limit=capped_limit,
         )
         vector_matches = await self.repository.fetch_cte_vector_matches(
             target_embedding_text=query_embedding_text,
-            unit_value=unit_value,
-            supplier_inns=normalized_supplier_inns,
-            date_from=date_from,
-            date_to=date_to,
+            unit_id=unit_id,
+            category_ids=normalized_category_ids,
             limit=capped_limit,
         )
 
@@ -436,10 +428,8 @@ class PricingStatisticsService:
 
         return CteSearchResult(
             query_name=name,
-            applied_unit_value=unit_value,
-            applied_supplier_inns=normalized_supplier_inns,
-            applied_date_from=date_from,
-            applied_date_to=date_to,
+            applied_unit_id=unit_id,
+            applied_category_ids=normalized_category_ids,
             total_candidates=len(ordered),
             candidates=[
                 CteSearchCandidate(

@@ -397,10 +397,8 @@ class ProcurementAnalysisRepository:
     async def fetch_cte_name_exact_matches(
         self,
         query_name: str,
-        unit_value: str | None,
-        supplier_inns: list[str] | None,
-        date_from: str | None,
-        date_to: str | None,
+        unit_id: int | None,
+        category_ids: list[int] | None,
         limit: int,
     ) -> list[dict]:
         rows = await self.db.fetch(
@@ -419,29 +417,23 @@ class ProcurementAnalysisRepository:
             JOIN categories ON categories.id = c.category_id
             LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
             WHERE lower(btrim(c.name)) = lower(btrim($1))
+              AND ($2::bigint[] IS NULL OR c.category_id = ANY($2))
               AND (
-                    ($2::text IS NULL AND $3::text[] IS NULL AND $4::date IS NULL AND $5::date IS NULL)
+                    ($3::bigint IS NULL)
                     OR EXISTS (
                         SELECT 1
                         FROM contract_items
-                        JOIN units ON units.id = contract_items.unit_id
                         JOIN contracts ON contracts.id = contract_items.contract_id
-                        JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
                         WHERE contract_items.cte_id = c.id
-                          AND ($2::text IS NULL OR lower(btrim(units.value)) = lower(btrim($2)))
-                          AND ($3::text[] IS NULL OR suppliers.inn = ANY($3))
-                          AND ($4::date IS NULL OR contracts.signed_at >= $4::date)
-                          AND ($5::date IS NULL OR contracts.signed_at <= $5::date)
+                          AND ($3::bigint IS NULL OR contract_items.unit_id = $3)
                     )
               )
             ORDER BY c.id
-            LIMIT $6
+            LIMIT $4
             """,
             query_name,
-            unit_value,
-            supplier_inns,
-            date_from,
-            date_to,
+            category_ids,
+            unit_id,
             limit,
         )
         return [dict(row) for row in rows]
@@ -449,10 +441,8 @@ class ProcurementAnalysisRepository:
     async def fetch_cte_vector_matches(
         self,
         target_embedding_text: str,
-        unit_value: str | None,
-        supplier_inns: list[str] | None,
-        date_from: str | None,
-        date_to: str | None,
+        unit_id: int | None,
+        category_ids: list[int] | None,
         limit: int,
     ) -> list[dict]:
         rows = await self.db.fetch(
@@ -471,29 +461,23 @@ class ProcurementAnalysisRepository:
             JOIN cte AS c ON c.id = cte_embeddings.cte_id
             JOIN categories ON categories.id = c.category_id
             LEFT JOIN manufacturers ON manufacturers.id = c.manufacturer_id
-            WHERE (
-                    ($2::text IS NULL AND $3::text[] IS NULL AND $4::date IS NULL AND $5::date IS NULL)
+            WHERE ($2::bigint[] IS NULL OR c.category_id = ANY($2))
+              AND (
+                    ($3::bigint IS NULL)
                     OR EXISTS (
                         SELECT 1
                         FROM contract_items
-                        JOIN units ON units.id = contract_items.unit_id
                         JOIN contracts ON contracts.id = contract_items.contract_id
-                        JOIN counterparties AS suppliers ON suppliers.id = contracts.supplier_id
                         WHERE contract_items.cte_id = c.id
-                          AND ($2::text IS NULL OR lower(btrim(units.value)) = lower(btrim($2)))
-                          AND ($3::text[] IS NULL OR suppliers.inn = ANY($3))
-                          AND ($4::date IS NULL OR contracts.signed_at >= $4::date)
-                          AND ($5::date IS NULL OR contracts.signed_at <= $5::date)
+                          AND ($3::bigint IS NULL OR contract_items.unit_id = $3)
                     )
                   )
             ORDER BY cte_embeddings.embedding <=> $1::vector
-            LIMIT $6
+            LIMIT $4
             """,
             target_embedding_text,
-            unit_value,
-            supplier_inns,
-            date_from,
-            date_to,
+            category_ids,
+            unit_id,
             limit,
         )
         return [dict(row) for row in rows]
