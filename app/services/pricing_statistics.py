@@ -165,11 +165,17 @@ class PricingStatisticsService:
     async def list_suppliers(self) -> list[dict]:
         return await self.repository.fetch_suppliers()
 
+    async def list_regions(self) -> list[dict]:
+        return await self.repository.fetch_regions()
+
     async def list_units(self) -> list[dict]:
         return await self.repository.fetch_units()
 
     async def list_categories(self) -> list[dict]:
         return await self.repository.fetch_categories()
+
+    async def get_contract(self, contract_id: int) -> dict | None:
+        return await self.repository.fetch_contract_detail(contract_id)
 
     async def create_manual_cte(
         self,

@@ -92,6 +92,15 @@ class SupplierOptionsResponse(BaseModel):
     items: list[SupplierOptionResponse]
 
 
+class RegionOptionResponse(BaseModel):
+    value: str
+
+
+class RegionOptionsResponse(BaseModel):
+    total: int
+    items: list[RegionOptionResponse]
+
+
 class UnitOptionResponse(BaseModel):
     id: int
     value: str
@@ -110,6 +119,40 @@ class CategoryOptionResponse(BaseModel):
 class CategoryOptionsResponse(BaseModel):
     total: int
     items: list[CategoryOptionResponse]
+
+
+class ContractPartyResponse(BaseModel):
+    id: int
+    name: str | None = None
+    inn: str | None = None
+    region: str | None = None
+
+
+class ContractItemDetailResponse(BaseModel):
+    id: int
+    cte_id: int
+    cte_name: str
+    quantity: float
+    unit_id: int
+    unit_value: str
+    unit_price: float
+    line_total: float
+
+
+class ContractDetailResponse(BaseModel):
+    id: int
+    purchase_name_id: int
+    purchase_name: str
+    procurement_method_id: int
+    procurement_method: str
+    initial_price: float
+    final_price: float
+    reduction_percent: float
+    vat_rate: float
+    signed_at: date
+    customer: ContractPartyResponse
+    supplier: ContractPartyResponse
+    items: list[ContractItemDetailResponse]
 
 
 class ManualCteCreateRequest(BaseModel):

@@ -24,6 +24,18 @@ class ProcurementAnalysisRepository:
         )
         return [dict(row) for row in rows]
 
+    async def fetch_regions(self) -> list[dict]:
+        rows = await self.db.fetch(
+            """
+            SELECT DISTINCT region AS value
+            FROM counterparties
+            WHERE region IS NOT NULL
+              AND btrim(region) <> ''
+            ORDER BY region
+            """
+        )
+        return [dict(row) for row in rows]
+
     async def fetch_units(self) -> list[dict]:
         rows = await self.db.fetch(
             """
@@ -46,6 +58,64 @@ class ProcurementAnalysisRepository:
             """
         )
         return [dict(row) for row in rows]
+
+    async def fetch_contract_detail(self, contract_id: int) -> dict | None:
+        contract_row = await self.db.fetchrow(
+            """
+            SELECT
+                contracts.id,
+                contracts.purchase_name_id,
+                purchase_names.name AS purchase_name,
+                contracts.procurement_method_id,
+                procurement_methods.name AS procurement_method,
+                contracts.initial_price,
+                contracts.final_price,
+                contracts.reduction_percent,
+                contracts.vat_rate,
+                contracts.signed_at,
+                customer.id AS customer_id,
+                customer.name AS customer_name,
+                customer.inn AS customer_inn,
+                customer.region AS customer_region,
+                supplier.id AS supplier_id,
+                supplier.name AS supplier_name,
+                supplier.inn AS supplier_inn,
+                supplier.region AS supplier_region
+            FROM contracts
+            JOIN purchase_names ON purchase_names.id = contracts.purchase_name_id
+            JOIN procurement_methods ON procurement_methods.id = contracts.procurement_method_id
+            JOIN counterparties AS customer ON customer.id = contracts.customer_id
+            JOIN counterparties AS supplier ON supplier.id = contracts.supplier_id
+            WHERE contracts.id = $1
+            """,
+            contract_id,
+        )
+        if not contract_row:
+            return None
+
+        item_rows = await self.db.fetch(
+            """
+            SELECT
+                contract_items.id,
+                contract_items.cte_id,
+                cte.name AS cte_name,
+                contract_items.quantity,
+                contract_items.unit_id,
+                units.value AS unit_value,
+                contract_items.unit_price,
+                contract_items.quantity * contract_items.unit_price AS line_total
+            FROM contract_items
+            JOIN cte ON cte.id = contract_items.cte_id
+            JOIN units ON units.id = contract_items.unit_id
+            WHERE contract_items.contract_id = $1
+            ORDER BY contract_items.id
+            """,
+            contract_id,
+        )
+
+        result = dict(contract_row)
+        result["items"] = [dict(row) for row in item_rows]
+        return result
 
     async def create_manual_cte(
         self,

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.db.deps import get_db
 from app.db.session import AsyncDatabase
-from app.schemas.analytics import CategoryOptionsResponse, SupplierOptionsResponse, UnitOptionsResponse
+from app.schemas.analytics import CategoryOptionsResponse, RegionOptionsResponse, SupplierOptionsResponse, UnitOptionsResponse
 from app.services.pricing_statistics import PricingStatisticsService
 
 
@@ -25,6 +25,15 @@ async def list_units(
     service = PricingStatisticsService(db)
     items = await service.list_units()
     return UnitOptionsResponse(total=len(items), items=items)
+
+
+@router.get("/regions", response_model=RegionOptionsResponse)
+async def list_regions(
+    db: AsyncDatabase = Depends(get_db),
+) -> RegionOptionsResponse:
+    service = PricingStatisticsService(db)
+    items = await service.list_regions()
+    return RegionOptionsResponse(total=len(items), items=items)
 
 
 @router.get("/categories", response_model=CategoryOptionsResponse)

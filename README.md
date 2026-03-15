@@ -113,12 +113,19 @@ IMPORT_CTE_EMBEDDINGS_FILE=data/imports/cte_embeddings_for_postgres_full.xlsx
 
 - `GET /api/v1/references/suppliers` список поставщиков
 - `GET /api/v1/references/units` список единиц измерения
+- `GET /api/v1/references/regions` список регионов
 - `GET /api/v1/references/categories` список категорий
+
+### `contracts`
+
+- `GET /api/v1/contracts/{contract_id}` просмотр одного контракта с заказчиком, поставщиком и позициями
 
 ### `cte`
 
 - `POST /api/v1/cte/search` поиск кандидатов CTE по названию и характеристикам
+- `GET /api/v1/cte/{cte_id}` просмотр одного CTE
 - `POST /api/v1/cte/manual` ручное добавление CTE
+- `PATCH /api/v1/cte/{cte_id}` редактирование CTE
 
 ### `embeddings`
 
@@ -158,6 +165,24 @@ POST /api/v1/cte/search
   "max_candidates": 20
 }
 ```
+
+### Просмотр контракта
+
+Ручка `GET /api/v1/contracts/{contract_id}` возвращает:
+
+- шапку контракта
+- заказчика и поставщика
+- список позиций контракта
+
+Для каждой позиции возвращаются:
+
+- `cte_id`
+- `cte_name`
+- `quantity`
+- `unit_id`
+- `unit_value`
+- `unit_price`
+- `line_total`
 
 ### Формирование весов
 
@@ -213,6 +238,8 @@ final_weight = exact_weight * embedding_weight * time_weight * quantity_weight
 
 - `unit_id` чтобы считать цену только по историческим наблюдениям с этой единицей измерения
 - `category_ids` чтобы считать цену только по историческим наблюдениям из этих категорий
+
+Обычная ручка `POST /api/v1/analytics/nmck` принимает тот же формат корзины и использует те же фильтры.
 
 - итоговую НМЦК по корзине
 - по каждому выбранному `cte`:
